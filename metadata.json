@@ -1,0 +1,7 @@
+{
+  "name": "Campus Lost & Found",
+  "description": "A comprehensive portal for students to report and find lost belongings on campus with real-time updates and admin moderation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

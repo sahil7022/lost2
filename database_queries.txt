@@ -1,0 +1,190 @@
+-- Campus Lost & Found Portal - SQL Queries
+
+-- 1. Database Schema Initialization
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT DEFAULT 'user',
+  bio TEXT,
+  avatar TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT,
+  category TEXT NOT NULL,
+  location TEXT NOT NULL,
+  image_url TEXT,
+  type TEXT CHECK(type IN ('lost', 'found')) NOT NULL,
+  status TEXT DEFAULT 'pending', -- pending, approved, returned, rejected
+  user_id INTEGER,
+  date_reported DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER,
+  user_id INTEGER,
+  description TEXT NOT NULL,
+  status TEXT DEFAULT 'pending', -- pending, verified, rejected
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (item_id) REFERENCES items(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id INTEGER,
+  following_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (follower_id, following_id),
+  FOREIGN KEY (follower_id) REFERENCES users(id),
+  FOREIGN KEY (following_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  recipient_id INTEGER,
+  sender_id INTEGER,
+  item_id INTEGER,
+  message TEXT NOT NULL,
+  type TEXT CHECK(type IN ('FOUND_MATCH', 'CLAIM_REQUEST', 'FOLLOW', 'SYSTEM')) NOT NULL,
+  read_status INTEGER DEFAULT 0, -- 0 for unread, 1 for read
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (recipient_id) REFERENCES users(id),
+  FOREIGN KEY (sender_id) REFERENCES users(id),
+  FOREIGN KEY (item_id) REFERENCES items(id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender_id INTEGER NOT NULL,
+  receiver_id INTEGER NOT NULL,
+  item_id INTEGER,
+  content TEXT NOT NULL,
+  read_status INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sender_id) REFERENCES users(id),
+  FOREIGN KEY (receiver_id) REFERENCES users(id),
+  FOREIGN KEY (item_id) REFERENCES items(id)
+);
+
+-- 2. User Authentication Queries
+-- Signup
+INSERT INTO users (name, email, password) VALUES (?, ?, ?);
+
+-- Login / Fetch User
+SELECT * FROM users WHERE email = ?;
+
+-- 3. Profile Management
+-- Get Profile
+SELECT id, name, email, role, bio, avatar FROM users WHERE id = ?;
+
+-- Update Profile (with avatar)
+UPDATE users SET name = ?, bio = ?, avatar = ? WHERE id = ?;
+
+-- Update Profile (without avatar)
+UPDATE users SET name = ?, bio = ? WHERE id = ?;
+
+-- 4. Item Management
+-- Fetch Items (with dynamic filters)
+SELECT items.*, users.name as user_name 
+FROM items 
+JOIN users ON items.user_id = users.id 
+WHERE 1=1 
+  AND type = ? 
+  AND category = ? 
+  AND status = ? 
+  AND (title LIKE ? OR description LIKE ?)
+ORDER BY date_reported DESC;
+
+-- Get Single Item Details
+SELECT items.*, users.name as user_name 
+FROM items 
+JOIN users ON items.user_id = users.id 
+WHERE items.id = ?;
+
+-- Post New Item
+INSERT INTO items (title, description, category, location, type, image_url, user_id) 
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- 5. Claim Management
+-- Submit Claim
+INSERT INTO claims (item_id, user_id, description) VALUES (?, ?, ?);
+
+-- 6. Follow System
+-- Follow User
+INSERT INTO follows (follower_id, following_id) VALUES (?, ?);
+
+-- Unfollow User
+DELETE FROM follows WHERE follower_id = ? AND following_id = ?;
+
+-- Check if Following
+SELECT * FROM follows WHERE follower_id = ? AND following_id = ?;
+
+-- Get Followers
+SELECT users.id, users.name, users.email, users.avatar, users.bio 
+FROM users 
+JOIN follows ON users.id = follows.follower_id 
+WHERE follows.following_id = ?;
+
+-- Get Following
+SELECT users.id, users.name, users.email, users.avatar, users.bio 
+FROM users 
+JOIN follows ON users.id = follows.following_id 
+WHERE follows.follower_id = ?;
+
+-- 7. Chat System
+-- Send Message
+INSERT INTO messages (sender_id, receiver_id, content, item_id) VALUES (?, ?, ?, ?);
+
+-- Get Messages between two users
+SELECT * FROM messages 
+WHERE (sender_id = ? AND receiver_id = ?) 
+   OR (sender_id = ? AND receiver_id = ?) 
+ORDER BY created_at ASC;
+
+-- Get Conversations for a user
+SELECT 
+  users.id, 
+  users.name, 
+  users.avatar, 
+  users.email,
+  m.content as last_message, 
+  m.created_at as last_message_time,
+  (SELECT COUNT(*) FROM messages WHERE receiver_id = ? AND sender_id = users.id AND read_status = 0) as unread_count
+FROM users
+JOIN (
+  SELECT 
+    CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
+    MAX(created_at) as max_created_at
+  FROM messages
+  WHERE sender_id = ? OR receiver_id = ?
+  GROUP BY other_user_id
+) last_msgs ON users.id = last_msgs.other_user_id
+JOIN messages m ON (
+  (m.sender_id = ? AND m.receiver_id = users.id) OR 
+  (m.sender_id = users.id AND m.receiver_id = ?)
+) AND m.created_at = last_msgs.max_created_at
+ORDER BY last_message_time DESC;
+
+-- 8. Notifications
+-- Get Notifications
+SELECT * FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC;
+
+-- Mark Notification as Read
+UPDATE notifications SET read_status = 1 WHERE id = ?;
+
+-- 9. Admin Queries
+-- Fetch All Claims
+SELECT claims.*, items.title as item_title, users.name as user_name 
+FROM claims 
+JOIN items ON claims.item_id = items.id 
+JOIN users ON claims.user_id = users.id;
+
+-- Update Item Status (Approve/Reject)
+UPDATE items SET status = ? WHERE id = ?;

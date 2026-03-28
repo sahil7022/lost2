@@ -1,0 +1,239 @@
+-- Campus Lost & Found Portal - MySQL Schema (phpMyAdmin Compatible)
+
+-- 0. Database Creation
+CREATE DATABASE IF NOT EXISTS campus_lost_found;
+USE campus_lost_found;
+
+-- 1. Database Schema Initialization
+
+-- Drop tables if they exist (to allow re-running the script)
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS follows;
+DROP TABLE IF EXISTS claims;
+DROP TABLE IF EXISTS items;
+DROP TABLE IF EXISTS users;
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(191) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    uucms_number VARCHAR(191) UNIQUE NOT NULL,
+    role VARCHAR(50) DEFAULT 'user',
+    bio TEXT,
+    avatar TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    category VARCHAR(100) NOT NULL,
+    location VARCHAR(255) NOT NULL,
+    image_url TEXT,
+    type ENUM('lost', 'found') NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending', -- pending, approved, returned, rejected
+    user_id INT,
+    date_reported DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE claims (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    item_id INT,
+    user_id INT,
+    description TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending', -- pending, verified, rejected
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE follows (
+    follower_id INT,
+    following_id INT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (follower_id, following_id),
+    FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (following_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    recipient_id INT,
+    sender_id INT,
+    item_id INT,
+    message TEXT NOT NULL,
+    type ENUM('FOUND_MATCH', 'CLAIM_REQUEST', 'FOLLOW', 'SYSTEM') NOT NULL,
+    read_status TINYINT(1) DEFAULT 0, -- 0 for unread, 1 for read
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    item_id INT,
+    content TEXT NOT NULL,
+    read_status TINYINT(1) DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. User Authentication Queries
+-- Signup
+-- INSERT INTO users (name, email, password, uucms_number) VALUES (?, ?, ?, ?);
+
+-- Login / Fetch User (by email or UUCMS)
+-- SELECT * FROM users WHERE email = ? OR uucms_number = ?;
+
+-- 3. User Search and Profile Management
+-- Search Users
+-- SELECT id, name, email, uucms_number, avatar, bio, created_at, role 
+-- FROM users 
+-- WHERE name LIKE ? OR email LIKE ? OR uucms_number LIKE ?;
+
+-- Get Profile by ID
+-- SELECT id, name, email, uucms_number, avatar, bio, created_at, role FROM users WHERE id = ?;
+
+-- Update Profile (with avatar)
+-- UPDATE users SET name = ?, bio = ?, avatar = ? WHERE id = ?;
+
+-- Update Profile (without avatar)
+-- UPDATE users SET name = ?, bio = ? WHERE id = ?;
+
+-- 4. Item Management
+-- Fetch Items (with dynamic filters)
+-- SELECT items.*, users.name as user_name 
+-- FROM items 
+-- JOIN users ON items.user_id = users.id 
+-- WHERE 1=1 
+--   AND type = ? 
+--   AND category = ? 
+--   AND status = ? 
+--   AND user_id = ?
+--   AND (title LIKE ? OR description LIKE ? OR category LIKE ?)
+-- ORDER BY date_reported DESC;
+
+-- Get Single Item Details
+-- SELECT items.*, users.name as user_name 
+-- FROM items 
+-- JOIN users ON items.user_id = users.id 
+-- WHERE items.id = ?;
+
+-- Post New Item
+-- INSERT INTO items (title, description, category, location, type, image_url, user_id) 
+-- VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- Delete Item
+-- DELETE FROM items WHERE id = ?;
+
+-- 5. Claim Management
+-- Submit Claim
+-- INSERT INTO claims (item_id, user_id, description) VALUES (?, ?, ?);
+
+-- 6. Follow System
+-- Follow User
+-- INSERT INTO follows (follower_id, following_id) VALUES (?, ?);
+
+-- Unfollow User
+-- DELETE FROM follows WHERE follower_id = ? AND following_id = ?;
+
+-- Check if Following
+-- SELECT * FROM follows WHERE follower_id = ? AND following_id = ?;
+
+-- Get Followers
+-- SELECT users.id, users.name, users.email, users.uucms_number, users.avatar, users.bio 
+-- FROM users 
+-- JOIN follows ON users.id = follows.follower_id 
+-- WHERE follows.following_id = ?;
+
+-- Get Following
+-- SELECT users.id, users.name, users.email, users.uucms_number, users.avatar, users.bio 
+-- FROM users 
+-- JOIN follows ON users.id = follows.following_id 
+-- WHERE follows.follower_id = ?;
+
+-- 7. Chat System
+-- Send Message
+-- INSERT INTO messages (sender_id, receiver_id, content, item_id) VALUES (?, ?, ?, ?);
+
+-- Get Messages between two users
+-- SELECT * FROM messages 
+-- WHERE (sender_id = ? AND receiver_id = ?) 
+--    OR (sender_id = ? AND receiver_id = ?) 
+-- ORDER BY created_at ASC;
+
+-- Get Conversations for a user
+-- SELECT 
+--   u.id as other_user_id,
+--   u.name as other_user_name,
+--   u.avatar as other_user_avatar,
+--   m.content as last_message,
+--   m.created_at as last_message_time,
+--   (SELECT COUNT(*) FROM messages WHERE sender_id = u.id AND receiver_id = ? AND read_status = 0) as unread_count
+-- FROM users u
+-- JOIN messages m ON (m.sender_id = u.id AND m.receiver_id = ?) OR (m.sender_id = ? AND m.receiver_id = u.id)
+-- WHERE u.id != ?
+-- AND m.id = (
+--   SELECT id FROM messages 
+--   WHERE (sender_id = u.id AND receiver_id = ?) OR (sender_id = ? AND receiver_id = u.id)
+--   ORDER BY created_at DESC LIMIT 1
+-- )
+-- ORDER BY m.created_at DESC;
+
+-- 8. Notifications
+-- Get Notifications
+-- SELECT * FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC;
+
+-- Mark Notification as Read
+-- UPDATE notifications SET read_status = 1 WHERE id = ?;
+
+-- 10. Sample Data Seeding (Optional)
+-- Users
+INSERT INTO users (id, name, email, password, uucms_number, role, bio, avatar) VALUES 
+(1, 'Campus Admin', 'admin@campus.edu', '$2a$10$7R9.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8', 'U15ZR24S0001', 'admin', 'Official Campus Lost & Found Administrator', 'https://api.dicebear.com/7.x/avataaars/svg?seed=admin'),
+(2, 'John Doe', 'john@example.com', '$2a$10$7R9.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8', 'U15ZR24S0002', 'user', 'Student at Engineering Dept', 'https://api.dicebear.com/7.x/avataaars/svg?seed=john'),
+(3, 'Jane Smith', 'jane@example.com', '$2a$10$7R9.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8.8', 'U15ZR24S0003', 'user', 'Arts & Science Major', 'https://api.dicebear.com/7.x/avataaars/svg?seed=jane');
+
+-- Items
+INSERT INTO items (id, title, description, category, location, type, status, user_id, image_url) VALUES 
+(1, 'iPhone 13 Pro', 'Blue iPhone 13 Pro with a clear case. Found near the library entrance.', 'Electronics', 'Main Library', 'found', 'approved', 1, 'https://images.unsplash.com/photo-1632661674596-df8be070a5c5?auto=format&fit=crop&q=80&w=800'),
+(2, 'Blue Backpack', 'North Face backpack containing some notebooks and a water bottle.', 'Others', 'Student Center', 'lost', 'approved', 2, 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&q=80&w=800'),
+(3, 'Student ID Card', 'ID card belonging to John Doe. Found in the cafeteria.', 'Documents', 'Cafeteria', 'found', 'approved', 3, 'https://images.unsplash.com/photo-1613243555988-441166d4d6fd?auto=format&fit=crop&q=80&w=800'),
+(4, 'MacBook Air M2', 'Silver MacBook Air M2. Left in Room 402.', 'Electronics', 'Science Building', 'lost', 'approved', 2, 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?auto=format&fit=crop&q=80&w=800'),
+(5, 'Leather Wallet', 'Brown leather wallet with some cash and cards.', 'Wallets', 'Gymnasium', 'found', 'approved', 1, 'https://images.unsplash.com/photo-1627123424574-724758594e93?auto=format&fit=crop&q=80&w=800');
+-- Admin Stats
+-- SELECT COUNT(*) as count FROM users;
+-- SELECT COUNT(*) as count FROM items WHERE type = 'lost';
+-- SELECT COUNT(*) as count FROM items WHERE type = 'found';
+-- SELECT COUNT(*) as count FROM claims;
+
+-- Fetch All Claims
+-- SELECT claims.*, items.title as item_title, users.name as user_name 
+-- FROM claims 
+-- JOIN items ON claims.item_id = items.id 
+-- JOIN users ON claims.user_id = users.id
+-- ORDER BY created_at DESC;
+
+-- Update Item Status (Approve/Reject)
+-- UPDATE items SET status = ? WHERE id = ?;
+
+-- Admin Audit Log
+-- SELECT items.id, items.title, items.type, items.status, items.date_reported,
+--        u_reporter.name as reporter_name,
+--        claims.user_id as claimer_id, u_claimer.name as claimer_name, claims.status as claim_status
+-- FROM items
+-- LEFT JOIN users u_reporter ON items.user_id = u_reporter.id
+-- LEFT JOIN claims ON items.id = claims.item_id
+-- LEFT JOIN users u_claimer ON claims.user_id = u_claimer.id
+-- ORDER BY items.date_reported DESC;
