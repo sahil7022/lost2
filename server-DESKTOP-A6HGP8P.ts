@@ -862,34 +862,6 @@ app.get("/api/chat/messages/:otherUserId", authenticateToken, async (req: any, r
 async function startServer() {
   const server = createServer(app);
   
-  // Create Vite dev server if not in production
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-    
-    // Serve index.html for SPA routing
-    app.use((req, res, next) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/uploads')) {
-        vite.transformIndexHtml(req.url, fs.readFileSync(path.resolve('./index.html'), 'utf-8'))
-          .then(html => {
-            res.set('Content-Type', 'text/html');
-            res.end(html);
-          });
-      } else {
-        next();
-      }
-    });
-  } else {
-    const distPath = path.resolve('./dist');
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.resolve(distPath, "index.html"));
-    });
-  }
-  
   // WebSocket Server
   const wss = new WebSocketServer({ noServer: true });
 
@@ -913,8 +885,7 @@ async function startServer() {
     });
   });
 
-  // WebSocket connection handling
-  wss.on('connection', (ws: WebSocket, user: any) => {
+  wss.on('connection', (ws, user: any) => {
     clients.set(user.id, ws);
     console.log(`[WS] User ${user.id} connected`);
 
@@ -961,21 +932,24 @@ async function startServer() {
     });
   });
 
-  // Start server
-  await initDB();
-  
-  server.listen(PORT, "0.0.0.0", () => {
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+  }
+
+  server.listen(PORT, "0.0.0.0", async () => {
+    await initDB();
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-<<<<<<< HEAD
-// Start the server
-startServer().catch(err => {
-  console.error('[Server Error]', err);
-  process.exit(1);
-});
-=======
 // Global Error Handler
 app.use((err: any, req: any, res: any, next: any) => {
   console.error("[Global Error Handlers]", err);
@@ -986,4 +960,3 @@ app.use((err: any, req: any, res: any, next: any) => {
 });
 
 startServer().catch(console.error);
->>>>>>> b91cc82af78566877a9b3f5c43809989268577b2
