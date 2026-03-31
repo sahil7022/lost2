@@ -31,9 +31,22 @@ export const adminService = {
     headers: getHeaders(),
     body: JSON.stringify({ status })
   }).then(r => r.json()),
+  deleteUser: (id: number) => fetch(`${API_BASE}/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: getHeaders()
+  }).then(r => r.json()),
+  getClaims: () => fetch(`${API_BASE}/admin/claims`, { headers: getHeaders() }).then(r => r.json()),
 };
 
 export const chatService = {
   getConversations: () => fetch(`${API_BASE}/chat/conversations`, { headers: getHeaders() }).then(r => r.json()),
   getMessages: (otherUserId: number) => fetch(`${API_BASE}/chat/messages/${otherUserId}`, { headers: getHeaders() }).then(r => r.json()),
+};
+
+export const aiService = {
+  ask: (question: string) => fetch(`${API_BASE}/ai/ask`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ question })
+  }).then(r => r.json()),
 };

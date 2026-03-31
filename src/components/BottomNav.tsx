@@ -20,7 +20,7 @@ export default function BottomNav({ user }: BottomNavProps) {
 
   return (
     <nav className="md:hidden fixed bottom-6 left-4 right-4 z-50">
-      <div className="bg-white/80 backdrop-blur-xl border border-white/20 shadow-2xl rounded-[2.5rem] px-4 py-3 flex items-center justify-between">
+      <div className="bg-background/80 dark:bg-neutral-900/80 backdrop-blur-xl border border-border/20 shadow-2xl rounded-[2.5rem] px-4 py-3 flex items-center justify-between">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
@@ -30,7 +30,7 @@ export default function BottomNav({ user }: BottomNavProps) {
               <Link
                 key={item.path}
                 to={item.path}
-                className="w-14 h-14 bg-orange-600 rounded-full flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-10 border-4 border-white transition-transform active:scale-90"
+                className="w-14 h-14 bg-orange-600 rounded-full flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-10 border-4 border-background dark:border-neutral-950 transition-transform active:scale-90"
               >
                 <Icon className="w-7 h-7 text-white" />
               </Link>
@@ -43,7 +43,7 @@ export default function BottomNav({ user }: BottomNavProps) {
               to={item.path}
               className={cn(
                 "flex flex-col items-center space-y-1 transition-colors",
-                isActive ? "text-orange-600" : "text-neutral-400"
+                isActive ? "text-orange-600" : "text-muted-foreground"
               )}
             >
               <Icon className={cn("w-6 h-6", isActive && "animate-in zoom-in duration-300")} />

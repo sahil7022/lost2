@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, User as UserIcon, Mail, Calendar, Shield, MoreVertical, Trash2, Users } from 'lucide-react';
-import { userService } from '../../services/api';
+import { userService, adminService } from '../../services/api';
 import { User } from '../../types';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -24,9 +24,18 @@ export default function AdminUsers() {
   }, []);
 
   const handleDeleteUser = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this user? This action is irreversible.")) return;
-    // In a real app, we'd have a DELETE /api/users/:id endpoint
-    toast.error("User deletion is restricted in this demo.");
+    if (!confirm("Are you sure you want to delete this user? This action is irreversible and will delete all their items and data.")) return;
+    try {
+      const result = await adminService.deleteUser(id);
+      if (result.success) {
+        toast.success("User deleted successfully");
+        fetchUsers();
+      } else {
+        toast.error(result.error || "Failed to delete user");
+      }
+    } catch (e) {
+      toast.error("Error deleting user");
+    }
   };
 
   return (

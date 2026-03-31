@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { MessageSquare, User as UserIcon, Search, ArrowRight } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { MessageSquare, User as UserIcon, Search, ArrowRight, MessageSquareDashed, Sparkles } from 'lucide-react';
 import { chatService } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
+import { motion } from 'motion/react';
+import EmptyState from '../components/EmptyState';
 
 interface Conversation {
   other_user_id: number;
@@ -15,6 +17,7 @@ interface Conversation {
 }
 
 export default function Inbox() {
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,6 +53,24 @@ export default function Inbox() {
         </div>
       </div>
 
+      <motion.div 
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.99 }}
+        onClick={() => navigate('/chat/0')}
+        className="cursor-pointer bg-gradient-to-r from-orange-500/10 to-primary/10 border border-orange-500/20 rounded-[2rem] p-6 shadow-xl flex items-center gap-6 group hover:shadow-2xl transition-all"
+      >
+        <div className="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center border border-orange-500/30 group-hover:scale-105 transition-transform">
+          <Sparkles className="w-8 h-8 text-orange-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-xl font-black text-orange-600 tracking-tight uppercase tracking-[0.1em] flex items-center gap-2">
+            Ask AI Butler <Sparkles className="w-4 h-4" />
+          </h3>
+          <p className="text-sm text-orange-600/70 font-medium">Get instant help finding your lost items using Gemini AI power.</p>
+        </div>
+        <ArrowRight className="w-6 h-6 text-orange-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all" />
+      </motion.div>
+
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
         <input 
@@ -62,21 +83,15 @@ export default function Inbox() {
 
       <div className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-xl">
         {filteredConversations.length === 0 ? (
-          <div className="p-12 text-center space-y-4">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
-              <MessageSquare className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-lg font-bold text-foreground">No messages yet</p>
-              <p className="text-sm text-muted-foreground">Start a conversation from an item details page</p>
-            </div>
-            <Link 
-              to="/listings" 
-              className="inline-flex items-center px-6 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90 transition-all"
-            >
-              Browse Items
-            </Link>
-          </div>
+          <EmptyState 
+            icon={MessageSquareDashed}
+            title="No Conversations"
+            description={searchQuery ? "No conversations match your search. Try a different name." : "You haven't started any chats yet. Start a conversation from an item page to discuss details!"}
+            action={!searchQuery ? {
+              label: "Browse Items",
+              onClick: () => navigate('/listings')
+            } : undefined}
+          />
         ) : (
           <div className="divide-y divide-border">
             {filteredConversations.map((conv) => (

@@ -1,8 +1,10 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
 .env*
 !.env.example
+campus_lost_found.db
+uploads/
+.gemini/
+dist/
+build/
+node_modules/
+*.log
+.DS_Store

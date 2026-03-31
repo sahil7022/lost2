@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Camera, Edit3, Grid, Bookmark, Settings, LogOut, PlusSquare } from 'lucide-react';
@@ -6,6 +6,8 @@ import { User, Item } from '../types';
 import { userService } from '../services/api';
 import FollowListModal from '../components/FollowListModal';
 import { cn } from '../lib/utils';
+import EmptyState from '../components/EmptyState';
+import { PackageOpen } from 'lucide-react';
 
 interface ProfileProps {
   user: User;
@@ -55,10 +57,12 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
     });
 
     if (res.ok) {
-      const updatedUser = { ...user, name, bio, avatar: previewUrl };
+      const data = await res.json();
+      const updatedUser = { ...user, ...data.user };
       onUpdate(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
       setIsEditing(false);
+      if (data.user.avatar) setPreviewUrl(data.user.avatar);
     }
   };
 
@@ -102,7 +106,7 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Profile Header - Instagram Style */}
       <section className="flex flex-col md:flex-row items-center md:items-start space-y-6 md:space-y-0 md:space-x-12 px-4">
-        <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+        <div className={cn("relative group", isEditing && "cursor-pointer")} onClick={() => isEditing && fileInputRef.current?.click()}>
           <div className="w-24 h-24 md:w-40 md:h-40 rounded-full overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
             {previewUrl ? (
               <img src={previewUrl} alt={user.name} className="w-full h-full object-cover" />
@@ -110,30 +114,29 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
               <span className="text-4xl font-bold text-muted-foreground/30">{user.name[0]}</span>
             )}
           </div>
-          <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <Camera className="text-white w-8 h-8" />
-          </div>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept="image/*" 
+          {isEditing && (
+            <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera className="text-white w-8 h-8" />
+            </div>
+          )}
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept="image/*"
             onChange={handleFileChange}
           />
         </div>
 
         <div className="flex-1 space-y-4 text-center md:text-left">
           <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
-            <h2 className="text-2xl font-light tracking-tight text-foreground">{user.email.split('@')[0]}</h2>
+            <h2 className="text-2xl font-light tracking-tight text-foreground">{user.name}</h2>
             <div className="flex space-x-2 justify-center">
-              <button 
+              <button
                 onClick={() => setIsEditing(!isEditing)}
                 className="px-4 py-1.5 bg-secondary hover:bg-secondary/80 rounded-lg text-sm font-semibold transition-colors text-foreground"
               >
                 {isEditing ? 'Cancel' : 'Edit Profile'}
-              </button>
-              <button className="p-1.5 bg-secondary hover:bg-secondary/80 rounded-lg text-foreground">
-                <Settings className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -149,7 +152,6 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
           </div>
 
           <div className="space-y-1">
-            <p className="font-bold text-foreground">{user.name}</p>
             {user.uucms_number && (
               <p className="text-xs font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded inline-block">
                 {user.uucms_number}
@@ -157,13 +159,13 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
             )}
             {isEditing ? (
               <form onSubmit={handleUpdate} className="space-y-4 pt-2">
-                <input 
+                <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full p-2 border border-border rounded-lg text-sm bg-background text-foreground"
                   placeholder="Full Name"
                 />
-                <textarea 
+                <textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   className="w-full p-2 border border-border rounded-lg text-sm h-20 bg-background text-foreground"
@@ -211,15 +213,22 @@ export default function Profile({ user, onUpdate }: ProfileProps) {
             </Link>
           ))}
           {userItems.length === 0 && (
-            <div className="col-span-3 py-20 text-center text-muted-foreground">
-              <PlusSquare className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p>No posts yet. Start by reporting a lost or found item.</p>
+            <div className="col-span-3">
+              <EmptyState 
+                icon={PackageOpen}
+                title="No Posts Yet"
+                description="You haven't reported any lost or found items. Your reports will appear here once you post them."
+                action={{
+                  label: "Report an Item",
+                  onClick: () => window.location.href = '/post'
+                }}
+              />
             </div>
           )}
         </div>
       </div>
 
-      <FollowListModal 
+      <FollowListModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={modalTitle}

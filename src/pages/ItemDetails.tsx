@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { MapPin, Clock, User as UserIcon, Tag, ChevronLeft, Send, CheckCircle, ShieldCheck, MessageCircle, Trash2 } from 'lucide-react';
+import { MapPin, Clock, User as UserIcon, Tag, ChevronLeft, Send, CheckCircle, ShieldCheck, MessageCircle, Trash2, Box } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Item, User } from '../types';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
+import confetti from 'canvas-confetti';
 
 export default function ItemDetails({ user }: { user: User | null }) {
   const { id } = useParams();
@@ -13,6 +15,52 @@ export default function ItemDetails({ user }: { user: User | null }) {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimSent, setClaimSent] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const handleResolve = async () => {
+    if (!window.confirm("Mark this item as successfully resolved/returned?")) return;
+    try {
+      const res = await fetch(`/api/items/${id}/resolve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (res.ok) {
+        toast.success("Congratulations! Item marked as resolved.");
+        
+        // --- GOD TIER CELEBRATION ---
+        const duration = 5 * 1000;
+        const animationEnd = Date.now() + duration;
+        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+        const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+        const interval: any = setInterval(function() {
+          const timeLeft = animationEnd - Date.now();
+
+          if (timeLeft <= 0) {
+            return clearInterval(interval);
+          }
+
+          const particleCount = 50 * (timeLeft / duration);
+          // since particles fall down, start a bit higher than random
+          confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+          confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+        }, 250);
+        // ----------------------------
+
+        
+        // Refresh item data
+        const updatedRes = await fetch(`/api/items/${id}`);
+        const updatedData = await updatedRes.json();
+        setItem(updatedData);
+      } else {
+        toast.error("Failed to mark as resolved");
+      }
+    } catch (e) {
+      toast.error("Error connecting to server");
+    }
+  };
 
   const handleDelete = async () => {
     if (!window.confirm("Are you sure you want to delete this item?")) return;
@@ -48,7 +96,7 @@ export default function ItemDetails({ user }: { user: User | null }) {
       });
   }, [id]);
 
-  const handleClaim = async (e: React.FormEvent) => {
+  const handleClaim = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return navigate('/login');
     
@@ -96,8 +144,28 @@ export default function ItemDetails({ user }: { user: User | null }) {
     </div>
   );
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100 } },
+  };
+
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-20">
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="max-w-5xl mx-auto space-y-8 pb-20"
+    >
       <button 
         onClick={() => navigate(-1)} 
         className="group flex items-center text-muted-foreground hover:text-foreground transition-all font-bold text-sm"
@@ -108,24 +176,44 @@ export default function ItemDetails({ user }: { user: User | null }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         {/* Left: Image Section */}
-        <div className="lg:col-span-7 space-y-6">
+        <motion.div variants={itemVariants} className="lg:col-span-7 space-y-6">
           <div className="aspect-[4/3] rounded-[2.5rem] overflow-hidden bg-muted border border-border shadow-2xl relative group">
-            {item.image_url ? (
-              <img src={item.image_url} alt={item.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-muted-foreground/30 bg-muted">
-                <Tag className="w-24 h-24 opacity-20" />
-              </div>
-            )}
-            <div className={cn(
-              "absolute top-6 left-6 px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg backdrop-blur-md",
-              item.type === 'lost' ? "bg-red-500/90 text-white" : "bg-green-500/90 text-white"
-            )}>
+            <AnimatePresence mode="wait">
+              {item.image_url ? (
+                <motion.img 
+                  key="image"
+                  initial={{ scale: 1.1, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  src={item.image_url} 
+                  alt={item.title} 
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                />
+              ) : (
+                <motion.div 
+                  key="no-image"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="w-full h-full flex items-center justify-center text-muted-foreground/30 bg-muted"
+                >
+                  <Box className="w-24 h-24 opacity-20" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <motion.div 
+              initial={{ x: -20, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className={cn(
+                "absolute top-6 left-6 px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg backdrop-blur-md z-10",
+                item.type === 'lost' ? "bg-red-500/90 text-white" : "bg-green-500/90 text-white"
+              )}
+            >
               {item.type}
-            </div>
+            </motion.div>
           </div>
 
-          <div className="bg-card/50 backdrop-blur-sm p-8 rounded-[2.5rem] border border-border space-y-6">
+          <motion.div variants={itemVariants} className="bg-card/50 backdrop-blur-sm p-8 rounded-[2.5rem] border border-border space-y-6">
             <div className="space-y-2">
               <h3 className="text-xs font-black text-muted-foreground/60 uppercase tracking-[0.2em]">Description</h3>
               <p className="text-muted-foreground leading-relaxed text-lg">{item.description}</p>
@@ -137,11 +225,22 @@ export default function ItemDetails({ user }: { user: User | null }) {
                 Verified by Campus Security Protocol. Always meet in public places for item exchange.
               </p>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {/* Right: Info & Actions */}
-        <div className="lg:col-span-5 space-y-8">
+        <motion.div variants={itemVariants} className="lg:col-span-5 space-y-8">
+          {/* Returned Status Alert */}
+          {item.status === 'returned' && (
+            <div className="p-6 bg-blue-500/10 border border-blue-500/20 rounded-[2.5rem] space-y-2">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-blue-600" />
+                <h3 className="text-lg font-black text-blue-600">Item Returned</h3>
+              </div>
+              <p className="text-sm text-blue-600/80">This item has been successfully returned to its owner.</p>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
               <span className="px-3 py-1 bg-muted text-muted-foreground rounded-lg text-[10px] font-black uppercase tracking-widest">
@@ -212,7 +311,17 @@ export default function ItemDetails({ user }: { user: User | null }) {
               </Link>
             )}
 
-            {claimSent ? (
+            {item.status === 'returned' ? (
+              <div className="p-8 bg-blue-500/10 border border-blue-500/20 rounded-[2.5rem] text-center space-y-4">
+                <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle className="w-8 h-8 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="text-xl font-black text-blue-600">Successfully Resolved</h4>
+                  <p className="text-sm text-blue-600/80 mt-2">This item has been safely returned to its rightful owner. Great job, community!</p>
+                </div>
+              </div>
+            ) : claimSent ? (
               <div className="p-8 bg-green-500/10 border border-green-500/20 rounded-[2.5rem] text-center space-y-4">
                 <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto">
                   <CheckCircle className="w-8 h-8 text-green-600" />
@@ -253,18 +362,20 @@ export default function ItemDetails({ user }: { user: User | null }) {
                     </div>
                   </form>
                 ) : (
-                  <button 
-                    onClick={() => user ? setIsClaiming(true) : navigate('/login')}
-                    className="w-full bg-orange-600 text-white py-6 rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-orange-700 transition-all shadow-2xl shadow-orange-600/30 active:scale-[0.98]"
-                  >
-                    {item.type === 'lost' ? "I found this item" : "This is mine / I know the owner"}
-                  </button>
+                  <div className="space-y-4">
+                    <button 
+                      onClick={() => user ? setIsClaiming(true) : navigate('/login')}
+                      className="w-full bg-orange-600 text-white py-6 rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-orange-700 transition-all shadow-2xl shadow-orange-600/30 active:scale-[0.98]"
+                    >
+                      {item.type === 'lost' ? "I found this item" : "This is mine / I know the owner"}
+                    </button>
+                  </div>
                 )}
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 }

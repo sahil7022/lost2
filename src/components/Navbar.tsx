@@ -7,16 +7,16 @@ import {
   Users,
   LayoutDashboard,
   Bell,
+  MessageSquare,
   Sun,
-  Moon,
-  MessageSquare
+  Moon
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import GlobalSearch from './GlobalSearch';
 import NotificationDropdown from './NotificationDropdown';
-import { User } from '../types';
 import { useTheme } from '../context/ThemeContext';
-
+import { User } from '../types';
 interface NavbarProps {
   user: User | null;
   onLogout: () => void;
@@ -26,21 +26,25 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
-
   const isAdmin = user?.role === 'admin';
 
   return (
-    <nav className="sticky top-0 z-50 w-full px-4 py-4">
+    <nav className="fixed top-0 left-0 z-50 w-full px-4 py-4">
       <div className="max-w-7xl mx-auto bg-background/70 dark:bg-neutral-900/70 backdrop-blur-xl border border-border/20 shadow-2xl rounded-[2rem] px-6 py-3 flex items-center justify-between transition-colors duration-300">
         {/* Logo */}
-        <Link to="/" className="flex items-center space-x-2 group">
-          <div className="w-10 h-10 bg-orange-600 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-600/20 group-hover:rotate-12 transition-transform">
-            <Search className="text-white w-6 h-6" />
-          </div>
-          <span className="text-xl font-bold tracking-tighter hidden sm:block text-foreground">
-            CAMPUS<span className="text-orange-600">FOUND</span>
-          </span>
-        </Link>
+        <motion.div
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          <Link to="/" className="flex items-center space-x-2 group">
+            <div className="w-10 h-10 bg-orange-600 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-600/20 group-hover:rotate-12 transition-transform">
+              <Search className="text-white w-6 h-6" />
+            </div>
+            <span className="text-xl font-bold tracking-tighter hidden sm:block text-foreground">
+              CAMPUS<span className="text-orange-600">FOUND</span>
+            </span>
+          </Link>
+        </motion.div>
 
         {/* Global Search */}
         <div className="hidden md:flex flex-1 justify-center px-8">
@@ -49,35 +53,32 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
 
         {/* Actions */}
         <div className="flex items-center space-x-2 md:space-x-4">
-          <button
-            onClick={toggleTheme}
-            className="p-2.5 rounded-xl bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all border border-border/50"
-            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
-          >
-            {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
-          </button>
 
           {user ? (
             <>
               <div className="hidden lg:flex items-center space-x-1 border-r border-border pr-4 mr-2">
-                <Link 
-                  to="/listings" 
-                  className={cn(
-                    "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-                    location.pathname === '/listings' ? "bg-orange-50 dark:bg-orange-900/20 text-orange-600" : "text-muted-foreground hover:bg-secondary"
-                  )}
-                >
-                  Browse
-                </Link>
-                <Link 
-                  to="/explore" 
-                  className={cn(
-                    "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-                    location.pathname === '/explore' ? "bg-orange-50 dark:bg-orange-900/20 text-orange-600" : "text-muted-foreground hover:bg-secondary"
-                  )}
-                >
-                  People
-                </Link>
+                {[
+                  { name: 'Browse', path: '/listings' },
+                  { name: 'People', path: '/explore' }
+                ].map((item) => (
+                  <Link 
+                    key={item.path}
+                    to={item.path}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold transition-colors relative",
+                      location.pathname === item.path ? "text-orange-600" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {item.name}
+                    {location.pathname === item.path && (
+                      <motion.div 
+                        layoutId="nav-active"
+                        className="absolute inset-0 bg-orange-50 dark:bg-orange-900/10 rounded-xl -z-10"
+                        transition={{ type: "spring", bounce: 0.25, duration: 0.5 }}
+                      />
+                    )}
+                  </Link>
+                ))}
               </div>
 
               <Link 
@@ -118,6 +119,16 @@ export default function Navbar({ user, onLogout }: NavbarProps) {
               >
                 <LogOut className="w-5 h-5" />
               </button>
+
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={toggleTheme}
+                className="p-2 text-muted-foreground hover:bg-secondary rounded-xl transition-all"
+                title="Toggle Theme"
+              >
+                {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </motion.button>
             </>
           ) : (
             <div className="flex items-center space-x-2">

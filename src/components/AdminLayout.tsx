@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -10,7 +10,8 @@ import {
   Menu, 
   X,
   Bell,
-  Search
+  AlertCircle,
+  FileText
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -26,8 +27,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const menuItems = [
     { icon: LayoutDashboard, label: 'Overview', path: '/admin' },
     { icon: Package, label: 'Items Management', path: '/admin/items' },
+    { icon: AlertCircle, label: 'Claims Oversight', path: '/admin/claims' },
     { icon: Users, label: 'User Directory', path: '/admin/users' },
-    { icon: History, label: 'Audit Logs', path: '/admin/audit' },
+    { icon: FileText, label: 'Audit Logs', path: '/admin/audit' },
   ];
 
   return (
@@ -96,13 +98,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
-              <input 
-                placeholder="Quick search..."
-                className="pl-10 pr-4 py-1.5 bg-secondary border-none rounded-lg text-xs focus:ring-2 focus:ring-orange-500/50 w-48 text-foreground"
-              />
-            </div>
+
             <button className="p-2 text-muted-foreground hover:text-foreground">
               <Bell className="w-5 h-5" />
             </button>
