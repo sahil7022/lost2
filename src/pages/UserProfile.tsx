@@ -7,6 +7,8 @@ import FollowButton from '../components/FollowButton';
 import FollowListModal from '../components/FollowListModal';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import EmptyState from '../components/EmptyState';
+import { PackageOpen } from 'lucide-react';
 
 export default function UserProfile() {
   const { userId } = useParams();
@@ -80,12 +82,14 @@ export default function UserProfile() {
         <div className="flex-1 space-y-6 text-center md:text-left">
           <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-6">
             <h2 className="text-3xl font-light tracking-tight">@{user.email.split('@')[0]}</h2>
-            <FollowButton 
-              userId={user.id.toString()} 
-              onToggle={() => {
-                userService.getUser(user.id.toString()).then(setUser);
-              }}
-            />
+            {localStorage.getItem('user') && JSON.parse(localStorage.getItem('user')!).id !== user.id && (
+              <FollowButton 
+                userId={user.id.toString()} 
+                onToggle={() => {
+                  userService.getUser(user.id.toString()).then(setUser);
+                }}
+              />
+            )}
           </div>
 
           <div className="flex justify-center md:justify-start space-x-10 text-sm">
@@ -145,9 +149,12 @@ export default function UserProfile() {
             </Link>
           ))}
           {items.length === 0 && (
-            <div className="col-span-full py-20 text-center text-neutral-400 space-y-4">
-              <Package className="w-12 h-12 mx-auto opacity-10" />
-              <p>This user hasn't posted any items yet.</p>
+            <div className="col-span-full">
+              <EmptyState 
+                icon={PackageOpen}
+                title="No Posts Yet"
+                description="This user hasn't reported any lost or found items yet. Check back later!"
+              />
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Send, User as UserIcon, ArrowLeft, MoreVertical, Package, Shield } from 'lucide-react';
 import { chatService, userService } from '../services/api';
@@ -6,6 +6,7 @@ import { User } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 
 interface Message {
   id: number;
@@ -31,10 +32,30 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const isAI = otherUserId === '0';
+
   useEffect(() => {
     if (!otherUserId) return;
 
-    // Fetch other user info
+    if (isAI) {
+      setOtherUser({
+        id: 0,
+        name: 'AI Butler',
+        email: 'ai@campus.edu',
+        role: 'admin',
+        avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Butler'
+      } as any);
+      setMessages([{
+        id: -1,
+        sender_id: 0,
+        receiver_id: currentUser.id,
+        content: "Hello! I'm your AI Campus Butler. Ask me anything about lost or found items!",
+        created_at: new Date().toISOString(),
+        read_status: 1
+      }]);
+      setLoading(false);
+      return;
+    }
     userService.getUser(otherUserId).then(setOtherUser);
 
     // Fetch message history
@@ -76,17 +97,55 @@ export default function Chat() {
     };
   }, [otherUserId]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !ws || !otherUserId) return;
+    if (!newMessage.trim() || !otherUserId) return;
 
-    ws.send(JSON.stringify({
-      type: 'CHAT_MESSAGE',
+    const userMsg: Message = {
+      id: Date.now(),
+      sender_id: currentUser.id,
       receiver_id: parseInt(otherUserId),
-      content: newMessage
-    }));
+      content: newMessage,
+      created_at: new Date().toISOString(),
+      read_status: 1
+    };
 
-    setNewMessage('');
+    if (isAI) {
+      setMessages(prev => [...prev, userMsg]);
+      setNewMessage('');
+      setTimeout(scrollToBottom, 100);
+
+      try {
+        const res = await fetch('/api/ai/ask', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({ question: newMessage })
+        });
+        const data = await res.json();
+        const aiMsg: Message = {
+          id: Date.now() + 1,
+          sender_id: 0,
+          receiver_id: currentUser.id,
+          content: data.answer || data.error,
+          created_at: new Date().toISOString(),
+          read_status: 1
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        setTimeout(scrollToBottom, 100);
+      } catch (err) {
+        toast.error("AI is currently unavailable");
+      }
+    } else if (ws) {
+      ws.send(JSON.stringify({
+        type: 'CHAT_MESSAGE',
+        receiver_id: parseInt(otherUserId),
+        content: newMessage
+      }));
+      setNewMessage('');
+    }
   };
 
   if (loading || !otherUser) {

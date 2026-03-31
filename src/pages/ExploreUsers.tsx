@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Search, User as UserIcon, ArrowRight, UserPlus, Package } from 'lucide-react';
+import { Search, User as UserIcon, ArrowRight, UserPlus, Package, Users2, PackageOpen } from 'lucide-react';
 import { userService } from '../services/api';
 import { User } from '../types';
 import { Link } from 'react-router-dom';
 import FollowButton from '../components/FollowButton';
 import FollowListModal from '../components/FollowListModal';
+import EmptyState from '../components/EmptyState';
 
 export default function ExploreUsers() {
   const [users, setUsers] = useState<User[]>([]);
@@ -78,9 +79,19 @@ export default function ExploreUsers() {
         {loading ? (
           [...Array(8)].map((_, i) => <div key={i} className="h-64 bg-white rounded-3xl animate-pulse" />)
         ) : users.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-neutral-400">
-            <UserPlus className="w-12 h-12 mx-auto mb-4 opacity-10" />
-            <p>No users found matching your search.</p>
+          <div className="col-span-full">
+            <EmptyState 
+              icon={Users2}
+              title="No Users Found"
+              description={search ? `We couldn't find any community members matching "${search}".` : "The community is quiet right now. Invite some friends!"}
+              action={search ? {
+                label: "Clear Search",
+                onClick: () => {
+                  setSearch('');
+                  fetchUsers();
+                }
+              } : undefined}
+            />
           </div>
         ) : (
           users.map((user) => (
@@ -115,13 +126,15 @@ export default function ExploreUsers() {
                 </button>
               </div>
 
-              <FollowButton 
-                userId={user.id.toString()} 
-                className="w-full" 
-                onToggle={() => {
-                  userService.getUsers(search).then(setUsers);
-                }}
-              />
+              {localStorage.getItem('user') && JSON.parse(localStorage.getItem('user')!).id !== user.id && (
+                <FollowButton 
+                  userId={user.id.toString()} 
+                  className="w-full" 
+                  onToggle={() => {
+                    userService.getUsers(search).then(setUsers);
+                  }}
+                />
+              )}
             </div>
           ))
         )}

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Lock, User as UserIcon, ArrowRight, Loader2, Hash } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { User } from '../types';
 
 export default function Login({ onLogin }: { onLogin: (user: User, token: string) => void }) {
@@ -9,7 +10,7 @@ export default function Login({ onLogin }: { onLogin: (user: User, token: string
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -34,7 +35,12 @@ export default function Login({ onLogin }: { onLogin: (user: User, token: string
   };
 
   return (
-    <div className="max-w-md mx-auto py-12">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="max-w-md mx-auto py-12"
+    >
       <div className="bg-card p-8 rounded-3xl border border-border shadow-sm space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-card-foreground">Welcome Back</h1>
@@ -74,20 +80,22 @@ export default function Login({ onLogin }: { onLogin: (user: User, token: string
             </div>
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             disabled={loading}
-            className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold hover:opacity-90 transition-all flex items-center justify-center"
+            className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold hover:opacity-90 transition-all flex items-center justify-center shadow-lg shadow-primary/20"
           >
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
               <>Login <ArrowRight className="ml-2 w-5 h-5" /></>
             )}
-          </button>
+          </motion.button>
         </form>
 
         <p className="text-center text-sm text-muted-foreground">
           Don't have an account? <Link to="/signup" className="text-foreground font-bold hover:underline">Sign up</Link>
         </p>
       </div>
-    </div>
+    </motion.div>
   );
 }
