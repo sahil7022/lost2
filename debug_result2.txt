@@ -1,0 +1,22 @@
+NOTIF_SCHEMA=CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient_id INTEGER,
+        sender_id INTEGER,
+        item_id INTEGER,
+        message TEXT NOT NULL,
+        type TEXT CHECK(type IN ('FOUND_MATCH', 'CLAIM_REQUEST', 'FOLLOW', 'SYSTEM')) NOT NULL,
+        read_status INTEGER DEFAULT 0, -- 0 for unread, 1 for read
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+      )
+HAS_CHECK_CONSTRAINT=true
+SYSTEM_INSERT=OK
+ITEMS_COUNT=3
+ITEM={"id":9,"title":"keyboard","user_id":12,"status":"returned"}
+ITEM={"id":10,"title":"mouse","user_id":12,"status":"returned"}
+ITEM={"id":11,"title":"s","user_id":4,"status":"approved"}
+USER={"id":4,"name":"Sahil","role":"admin"}
+USER={"id":12,"name":"swaraj birje","role":"user"}
+USER={"id":13,"name":"shankar","role":"user"}

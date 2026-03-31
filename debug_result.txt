@@ -1,0 +1,19 @@
+NOTIFICATIONS SCHEMA:
+CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient_id INTEGER,
+        sender_id INTEGER,
+        item_id INTEGER,
+        message TEXT NOT NULL,
+        type TEXT CHECK(type IN ('FOUND_MATCH', 'CLAIM_REQUEST', 'FOLLOW', 'SYSTEM')) NOT NULL,
+        read_status INTEGER DEFAULT 0, -- 0 for unread, 1 for read
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+      )
+
+SYSTEM INSERT FAILED: FOREIGN KEY constraint failed
+FOREIGN KEYS: [{"foreign_keys":1}]
+ITEM 1: undefined
+USERS: [{"id":4,"name":"Sahil","role":"admin"},{"id":12,"name":"swaraj birje","role":"user"},{"id":13,"name":"shankar","role":"user"}]

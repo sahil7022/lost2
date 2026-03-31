@@ -8,12 +8,20 @@ import Database from "better-sqlite3";
 import mysql from "mysql2/promise";
 import multer from "multer";
 import fs from "fs";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "hackathon-secret-key";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
+
+export const clients = new Map<number, WebSocket>();
 
 // Database Setup
 let db: any;
@@ -132,7 +140,7 @@ async function initDB() {
         sender_id INTEGER,
         item_id INTEGER,
         message TEXT NOT NULL,
-        type TEXT CHECK(type IN ('FOUND_MATCH', 'CLAIM_REQUEST', 'FOLLOW', 'SYSTEM')) NOT NULL,
+        type TEXT NOT NULL,
         read_status INTEGER DEFAULT 0, -- 0 for unread, 1 for read
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -174,6 +182,35 @@ async function initDB() {
       await db.exec("ALTER TABLE items ADD COLUMN status TEXT DEFAULT 'pending'");
     } catch {
       // Column might already exist
+    }
+
+    // Migration: Fix notifications CHECK constraint (legacy DB had restrictive CHECK)
+    try {
+      const schema: any = await db.prepare("SELECT sql FROM sqlite_master WHERE name='notifications'").get();
+      if (schema && schema.sql && schema.sql.includes('CHECK')) {
+        console.log("[DB] Migrating notifications table to remove CHECK constraint...");
+        await db.exec(`
+          CREATE TABLE IF NOT EXISTS notifications_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient_id INTEGER,
+            sender_id INTEGER,
+            item_id INTEGER,
+            message TEXT NOT NULL,
+            type TEXT NOT NULL,
+            read_status INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+          );
+          INSERT INTO notifications_new SELECT * FROM notifications;
+          DROP TABLE notifications;
+          ALTER TABLE notifications_new RENAME TO notifications;
+        `);
+        console.log("[DB] Notifications table migrated successfully!");
+      }
+    } catch (e: any) {
+      console.error("[DB] Notification migration error:", e.message);
     }
   }
 
@@ -231,8 +268,48 @@ const seedData = async () => {
 
 // Helper for notifications
 const createNotification = async (recipient_id: number, sender_id: number | null, item_id: number | null, message: string, type: string) => {
-  await db.prepare("INSERT INTO notifications (recipient_id, sender_id, item_id, message, type) VALUES (?, ?, ?, ?, ?)")
+  const info = await db.prepare("INSERT INTO notifications (recipient_id, sender_id, item_id, message, type) VALUES (?, ?, ?, ?, ?)")
     .run(recipient_id, sender_id, item_id, message, type);
+
+  const ws = clients.get(recipient_id);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    let senderName = "System";
+    let senderAvatar = null;
+    if (sender_id) {
+       const user: any = await db.prepare("SELECT name, email, avatar FROM users WHERE id = ?").get(sender_id);
+       if (user) { 
+         senderName = user.name || (user.email ? user.email.split('@')[0] : 'User'); 
+         senderAvatar = user.avatar; 
+       }
+    }
+    ws.send(JSON.stringify({
+      type: 'NEW_NOTIFICATION',
+      notification: {
+        id: info.lastInsertRowid,
+        recipient_id,
+        sender_id,
+        item_id,
+        message,
+        type,
+        read_status: 0,
+        sender_name: senderName,
+        sender_avatar: senderAvatar
+      }
+    }));
+  }
+};
+
+// Helper for admin-only broadcasts
+const notifyAdmins = async (message: string, type: string = 'SYSTEM') => {
+  const admins = await db.prepare("SELECT id FROM users WHERE role = 'admin'").all();
+  admins.forEach(async (admin: any) => {
+    await createNotification(admin.id, null, null, message, type);
+  });
+};
+
+// BigInt JSON Support
+(BigInt.prototype as any).toJSON = function () {
+  return Number(this);
 };
 
 // Middleware
@@ -256,10 +333,10 @@ const upload = multer({ storage });
 const authenticateToken = (req: any, res: any, next: any) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.sendStatus(401);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) return res.sendStatus(403);
+    if (err) return res.status(403).json({ error: "Forbidden" });
     req.user = user;
     next();
   });
@@ -304,13 +381,21 @@ app.get("/api/users", async (req, res) => {
     query += " AND (name LIKE ? OR email LIKE ? OR uucms_number LIKE ?)";
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
-  const users = await db.prepare(query).all(...params);
-  res.json(users);
+  const users: any[] = await db.prepare(query).all(...params);
+  
+  // Attach follower/following counts
+  const usersWithCounts = await Promise.all(users.map(async (user: any) => {
+    const followers: any = await db.prepare("SELECT COUNT(*) as count FROM follows WHERE following_id = ?").get(user.id);
+    const following: any = await db.prepare("SELECT COUNT(*) as count FROM follows WHERE follower_id = ?").get(user.id);
+    return { ...user, followersCount: followers.count, followingCount: following.count };
+  }));
+  
+  res.json(usersWithCounts);
 });
 
 app.get("/api/users/:id", async (req, res) => {
   const user: any = await db.prepare("SELECT id, name, email, uucms_number, avatar, bio, created_at, role FROM users WHERE id = ?").get(req.params.id);
-  if (!user) return res.sendStatus(404);
+  if (!user) return res.status(404).json({ error: "User not found" });
   
   const followersCount = await db.prepare("SELECT COUNT(*) as count FROM follows WHERE following_id = ?").get(req.params.id);
   const followingCount = await db.prepare("SELECT COUNT(*) as count FROM follows WHERE follower_id = ?").get(req.params.id);
@@ -395,7 +480,8 @@ app.put("/api/profile", authenticateToken, upload.single("avatar"), async (req: 
   } else {
     await db.prepare("UPDATE users SET name = ?, bio = ? WHERE id = ?").run(name, bio, req.user.id);
   }
-  res.json({ success: true });
+  const updatedUser = await db.prepare("SELECT id, name, email, role, bio, avatar FROM users WHERE id = ?").get(req.user.id);
+  res.json({ success: true, user: updatedUser });
 });
 
 // Items
@@ -426,10 +512,32 @@ app.get("/api/items/:id", async (req, res) => {
 app.post("/api/items", authenticateToken, upload.single("image"), async (req: any, res) => {
   const { title, description, category, location, type } = req.body;
   const image_url = req.file ? `/uploads/${req.file.filename}` : null;
-  const info = await db.prepare("INSERT INTO items (title, description, category, location, type, image_url, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(title, description, category, location, type, image_url, req.user.id);
+  const status = 'approved';
+  const info = await db.prepare("INSERT INTO items (title, description, category, location, type, image_url, status, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)") 
+    .run(title, description, category, location, type, image_url, status, req.user.id);
   
-  // Potential Match Trigger
+  // --- Enhanced AI Smart Match Trigger ---
+  const oppositeType = type === 'lost' ? 'found' : 'lost';
+  const candidates = await db.prepare("SELECT * FROM items WHERE type = ? AND status = 'approved'").all(oppositeType);
+  
+  if (candidates.length > 0) {
+    const aiMatches = await runSmartMatch({ title, description, category, type }, candidates);
+    
+    for (const match of aiMatches) {
+      if (match.score > 70) {
+        // High confidence match! Notify both parties with AI context
+        const msg = `[AI Smart Match] I found a possible match (${match.score}%) for your "${title}". Reason: ${match.reason}`;
+        await createNotification(req.user.id, null, info.lastInsertRowid as number, msg, "FOUND_MATCH");
+        
+        const oppositeMsg = `[AI Smart Match] Someone reported an item that matches yours: "${title}" (${match.score}%). Reason: ${match.reason}`;
+        await createNotification(match.item.user_id, req.user.id, info.lastInsertRowid as number, oppositeMsg, "FOUND_MATCH");
+        
+        console.log(`[AI Match] ${match.score}% for ${title} <-> ${match.item.title}`);
+      }
+    }
+  }
+
+  // Fallback to basic string match for low-confidence or if AI fails
   if (type === 'found') {
     const matches = await db.prepare("SELECT user_id FROM items WHERE type = 'lost' AND (title LIKE ? OR category = ?) AND status = 'approved'")
       .all(`%${title}%`, category);
@@ -438,15 +546,143 @@ app.post("/api/items", authenticateToken, upload.single("image"), async (req: an
         await createNotification(match.user_id, req.user.id, info.lastInsertRowid as number, `found an item that might match your lost "${title}"`, "FOUND_MATCH");
       }
     });
+  } else if (type === 'lost') {
+    const matches = await db.prepare("SELECT user_id FROM items WHERE type = 'found' AND (title LIKE ? OR category = ?) AND status = 'approved'")
+      .all(`%${title}%`, category);
+    matches.forEach(async (match: any) => {
+      if (match.user_id !== req.user.id) {
+        await createNotification(req.user.id, match.user_id, info.lastInsertRowid as number, `has already found an item that might match your lost "${title}"`, "FOUND_MATCH");
+      }
+    });
   }
 
   res.json({ id: info.lastInsertRowid });
 });
 
+app.post("/api/analyze-image", authenticateToken, upload.single("image"), async (req: any, res) => {
+  if (!req.file) return res.status(400).json({ error: "No image provided" });
+  if (!genAI) return res.status(500).json({ error: "Gemini API key not configured" });
+
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+    const imagePart = {
+      inlineData: {
+        data: fs.readFileSync(req.file.path).toString("base64"),
+        mimeType: req.file.mimetype
+      }
+    };
+
+    const prompt = `Analyze this image of a lost or found item for a campus portal. 
+    Detect the primary object in great detail.
+    Return a JSON object with:
+    - title: A catchy and professional title (e.g. "Space Grey MacBook Air M2").
+    - category: One of [Electronics, Documents, Books, Clothing, Keys, Wallets, Others].
+    - description: A vivid, search-optimized description. Mention color, texture, branding, visible damage, or unique stickers.
+    - label: A 1-2 word noun (e.g. "Laptop").
+    - colors: An array of dominant colors.
+    - confidence: A score from 0-1 (e.g. 0.95).
+    - box_2d: [ymin, xmin, ymax, xmax] in 0-1000 scale.
+    
+    Be precise. If it's a student ID, extract the name if visible.`;
+
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = await result.response;
+    const text = response.text();
+    
+    const startIdx = text.indexOf('{');
+    const endIdx = text.lastIndexOf('}');
+    if (startIdx === -1 || endIdx === -1) throw new Error("AI output was not JSON");
+    
+    const analysis = JSON.parse(text.substring(startIdx, endIdx + 1));
+    
+    console.log("[AI Analysis] High-fidelity detection:", analysis.title);
+
+    if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.json(analysis);
+  } catch (error: any) {
+    console.error("[AI Analysis Error]", error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: "Analysis failed: " + error.message });
+  }
+});
+
+// --- NEW: AI Assistant & Smart Match Helpers ---
+
+async function runSmartMatch(newItem: any, candidates: any[]) {
+  if (!genAI || candidates.length === 0) return [];
+
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
+    const prompt = `You are a Lost & Found Matching Engine. 
+    New Item reported: "${newItem.title}" - ${newItem.description}.
+    Category: ${newItem.category}. Type: ${newItem.type}.
+    
+    Potential candidates:
+    ${candidates.map((c, i) => `${i}: "${c.title}" - ${c.description}`).join('\n')}
+    
+    Analyze each candidate. For each, return a match score (0-100) based on how likely they are the SAME physical object.
+    High score (>80) means VERY LIKELY.
+    
+    Return a JSON array of objects: [{ idx: number, score: number, reason: string }]
+    Only include scores > 40.`;
+
+    const result = await model.generateContent(prompt);
+    const jsonStr = result.response.text();
+    const matches = JSON.parse(jsonStr.substring(jsonStr.indexOf('['), jsonStr.lastIndexOf(']') + 1));
+    
+    return matches.map((m: any) => ({
+      item: candidates[m.idx],
+      score: m.score,
+      reason: m.reason
+    }));
+  } catch (e) {
+    console.error("[Smart Match Engine Error]", e);
+    return [];
+  }
+}
+
+app.post("/api/ai/ask", authenticateToken, async (req: any, res) => {
+  const { question } = req.body;
+  if (!genAI) return res.status(500).json({ error: "AI not configured" });
+
+  try {
+    const items = await db.prepare("SELECT title, description, category, location, type, status FROM items WHERE status != 'returned'").all();
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `You are "Butler", the Campus AI Assistant for the Lost & Found Portal.
+    You help students find lost belongings. Be polite, helpful, and professional.
+    
+    Database Context:
+    ${items.map(i => `- [${i.type.toUpperCase()}] ${i.title} at ${i.location}`).join('\n')}
+    
+    User Query: "${question}"
+    
+    Instructions:
+    1. Check if any items match the query.
+    2. If found, tell them specifically which one and where it was reported.
+    3. If not found, give helpful advice (e.g., check the library desk).
+    4. Keep it concise but friendly.`;
+
+    const result = await model.generateContent(prompt);
+    res.json({ answer: result.response.text() });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete("/api/items/:id", authenticateToken, async (req: any, res) => {
   const item: any = await db.prepare("SELECT * FROM items WHERE id = ?").get(req.params.id);
-  if (!item) return res.sendStatus(404);
-  if (item.user_id !== req.user.id && req.user.role !== 'admin') return res.sendStatus(403);
+  if (!item) return res.status(404).json({ error: "Item not found" });
+  if (Number(item.user_id) !== Number(req.user.id) && req.user.role !== 'admin') {
+    return res.status(403).json({ error: "Unauthorized to delete this item" });
+  }
   
   // Manually delete related records if cascade isn't working as expected or to be safe
   await db.prepare("DELETE FROM claims WHERE item_id = ?").run(req.params.id);
@@ -455,6 +691,37 @@ app.delete("/api/items/:id", authenticateToken, async (req: any, res) => {
   
   await db.prepare("DELETE FROM items WHERE id = ?").run(req.params.id);
   res.json({ success: true });
+});
+
+app.post("/api/items/:id/resolve", authenticateToken, async (req: any, res) => {
+  try {
+    const item: any = await db.prepare("SELECT * FROM items WHERE id = ?").get(req.params.id);
+    if (!item) return res.status(404).json({ error: "Item not found" });
+    
+    console.log("[Resolve] Attempting resolve for item", req.params.id, "by user", req.user.id, "(role:", req.user.role, ") item owner:", item.user_id);
+    
+    // Only owner or admin can resolve
+    if (Number(item.user_id) !== Number(req.user.id) && req.user.role !== 'admin') {
+      console.log("[Resolve] BLOCKED - user", req.user.id, "is not owner", item.user_id, "and not admin");
+      return res.status(403).json({ error: "Unauthorized to resolve this item" });
+    }
+
+    await db.prepare("UPDATE items SET status = 'returned' WHERE id = ?").run(req.params.id);
+    console.log("[Resolve] Item", req.params.id, "status updated to returned");
+    
+    try {
+      const user: any = await db.prepare("SELECT name FROM users WHERE id = ?").get(req.user.id);
+      const userName = user?.name || "A user";
+      await notifyAdmins(`${userName} has marked the item "${item.title}" as RESOLVED!`, 'SYSTEM');
+    } catch (notifErr) {
+      console.error("[Resolve] Notification failed (non-blocking):", notifErr);
+    }
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[Resolve] CRITICAL ERROR:", err);
+    res.status(500).json({ error: err.message || "Internal server error" });
+  }
 });
 
 // Claims
@@ -467,29 +734,62 @@ app.post("/api/claims", authenticateToken, async (req: any, res) => {
   
   if (item) {
     await createNotification(item.user_id, req.user.id, item_id, `submitted a claim for your item: ${item.title}`, "CLAIM_REQUEST");
+    
+    // Notify Admins
+    const user: any = await db.prepare("SELECT name FROM users WHERE id = ?").get(req.user.id);
+    const claimantName = user?.name || "A user";
+    await notifyAdmins(`${claimantName} has submitted a CLAIM for the item: "${item.title}"`, 'SYSTEM');
   }
   res.json({ id: info.lastInsertRowid });
 });
 
 // Admin APIs
 app.get("/api/admin/stats", authenticateToken, async (req: any, res) => {
-  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
   
   const totalUsers = await db.prepare("SELECT COUNT(*) as count FROM users").get();
   const totalLost = await db.prepare("SELECT COUNT(*) as count FROM items WHERE type = 'lost'").get();
   const totalFound = await db.prepare("SELECT COUNT(*) as count FROM items WHERE type = 'found'").get();
   const totalClaims = await db.prepare("SELECT COUNT(*) as count FROM claims").get();
+  const totalResolved = await db.prepare("SELECT COUNT(*) as count FROM items WHERE status = 'returned'").get();
   
   res.json({
     totalUsers: (totalUsers as any).count,
     totalLost: (totalLost as any).count,
     totalFound: (totalFound as any).count,
-    totalClaims: (totalClaims as any).count
+    totalClaims: (totalClaims as any).count,
+    totalResolved: (totalResolved as any).count
   });
 });
 
+// Delete User (Admin Only)
+app.delete("/api/admin/users/:id", authenticateToken, async (req: any, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
+  const userId = parseInt(req.params.id);
+  
+  // Prevent admin from deleting themselves
+  if (userId === req.user.id) {
+    return res.status(400).json({ error: "Cannot delete your own account" });
+  }
+  
+  try {
+    // Delete all cascade data
+    await db.prepare("DELETE FROM messages WHERE sender_id = ? OR receiver_id = ?").run(userId, userId);
+    await db.prepare("DELETE FROM notifications WHERE sender_id = ? OR recipient_id = ?").run(userId, userId);
+    await db.prepare("DELETE FROM claims WHERE user_id = ?").run(userId);
+    await db.prepare("DELETE FROM follows WHERE follower_id = ? OR following_id = ?").run(userId, userId);
+    await db.prepare("DELETE FROM items WHERE user_id = ?").run(userId);
+    await db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error("[Delete User Error]", e);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
 app.get("/api/admin/claims", authenticateToken, async (req: any, res) => {
-  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
   const claims = await db.prepare(`
     SELECT claims.*, items.title as item_title, users.name as user_name 
     FROM claims 
@@ -501,14 +801,14 @@ app.get("/api/admin/claims", authenticateToken, async (req: any, res) => {
 });
 
 app.put("/api/admin/items/:id/status", authenticateToken, async (req: any, res) => {
-  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
   const { status } = req.body;
   await db.prepare("UPDATE items SET status = ? WHERE id = ?").run(status, req.params.id);
   res.json({ success: true });
 });
 
 app.get("/api/admin/audit", authenticateToken, async (req: any, res) => {
-  if (req.user.role !== 'admin') return res.sendStatus(403);
+  if (req.user.role !== 'admin') return res.status(403).json({ error: "Admin access required" });
   const audit = await db.prepare(`
     SELECT items.id, items.title, items.type, items.status, items.date_reported,
            u_reporter.name as reporter_name,
@@ -562,37 +862,8 @@ app.get("/api/chat/messages/:otherUserId", authenticateToken, async (req: any, r
 async function startServer() {
   const server = createServer(app);
   
-  // Create Vite dev server if not in production
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-    
-    // Serve index.html for SPA routing
-    app.use((req, res, next) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/uploads')) {
-        vite.transformIndexHtml(req.url, fs.readFileSync(path.resolve('./index.html'), 'utf-8'))
-          .then(html => {
-            res.set('Content-Type', 'text/html');
-            res.end(html);
-          });
-      } else {
-        next();
-      }
-    });
-  } else {
-    const distPath = path.resolve('./dist');
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.resolve(distPath, "index.html"));
-    });
-  }
-  
   // WebSocket Server
   const wss = new WebSocketServer({ noServer: true });
-  const clients = new Map<number, WebSocket>();
 
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url!, `http://${request.headers.host}`);
@@ -614,8 +885,7 @@ async function startServer() {
     });
   });
 
-  // WebSocket connection handling
-  wss.on('connection', (ws: WebSocket, user: any) => {
+  wss.on('connection', (ws, user: any) => {
     clients.set(user.id, ws);
     console.log(`[WS] User ${user.id} connected`);
 
@@ -640,7 +910,12 @@ async function startServer() {
           // Send to receiver if online
           const receiverWs = clients.get(receiver_id);
           if (receiverWs && receiverWs.readyState === WebSocket.OPEN) {
-            receiverWs.send(JSON.stringify({ type: 'NEW_MESSAGE', message: savedMessage }));
+            receiverWs.send(JSON.stringify({ 
+              type: 'NEW_MESSAGE', 
+              message: savedMessage,
+              senderName: user.email ? user.email.split('@')[0] : 'User',
+              senderAvatar: user.avatar
+            }));
           }
 
           // Send confirmation back to sender
@@ -657,16 +932,31 @@ async function startServer() {
     });
   });
 
-  // Start server
-  await initDB();
-  
-  server.listen(PORT, "0.0.0.0", () => {
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+  }
+
+  server.listen(PORT, "0.0.0.0", async () => {
+    await initDB();
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-// Start the server
-startServer().catch(err => {
-  console.error('[Server Error]', err);
-  process.exit(1);
+// Global Error Handler
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("[Global Error Handlers]", err);
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: "File upload error: " + err.message });
+  }
+  res.status(500).json({ error: err.message || "Internal server error" });
 });
+
+startServer().catch(console.error);
